@@ -6,14 +6,22 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 import numpy as np
 import ollama
+<<<<<<< HEAD
 import os
 from database import SessionLocal, DocumentChunk, engine, Base
 from contextlib import asynccontextmanager
 INDEX_FILE = "vector_index.faiss"
+=======
+>>>>>>> master
 
 import time
 def get_latency(start_time):
     return round((time.time() - start_time) * 1000, 2) # Returns milliseconds
+
+
+import time
+def get_latency(start_time):
+    return round((time.time()-start_time)*1000, 2)
 
 
 # Global Variables
@@ -25,6 +33,7 @@ embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
+<<<<<<< HEAD
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP LOGIC ---
@@ -50,7 +59,33 @@ async def lifespan(app: FastAPI):
     print("Shutting down... Cleaning up resources.")
     
 app = FastAPI(lifespan=lifespan)
+=======
+from database import Base, SessionLocal, engine, DocumentChunk
+>>>>>>> master
 
+from contextlib import asynccontextmanager
+import os
+INDEX_FILE = "vector_index.faiss"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STARTUP LOGIC
+    global faiss_index, bm25_index, documents
+
+    Base.metadata.create_all(bind=engine)
+
+    if os.path.exists(INDEX_FILE):
+        faiss_index = faiss.read_index(INDEX_FILE)
+        rebuild_indexes()
+    else:
+        print("No local index found, Initializing empty state")    
+    
+    # SHUTDOWN LOGIC
+    # print("Shutting down, cleaning up resources")
+
+    yield
+
+app = FastAPI(lifespan = lifespan)
 def chunk_text(text, size=500, overlap = 100):
     chunks = []
     start = 0
@@ -73,6 +108,7 @@ def rebuild_indexes():
     db.close()
 
     if not db_chunks:
+<<<<<<< HEAD
         return 
 
     all_texts = [chunk.content for chunk in db_chunks]
@@ -80,17 +116,38 @@ def rebuild_indexes():
     
     # BM25 Index
     tokenize_docs = [doc.lower().split() for doc in all_texts] # Tokenization
+=======
+        return
+
+    all_texts = [chunk.content for chunk in db_chunks]
+    documents = all_texts
+    ##################################
+    # BM25 Index
+    ##################################
+    # Tokenization
+    tokenize_docs = [doc.lower().split() for doc in all_texts]
+>>>>>>> master
     bm25_index = BM25Okapi(tokenize_docs)
 
     # FAISS Index 
+<<<<<<< HEAD
+=======
+    ################################## 
+>>>>>>> master
     doc_embeddings = embed_model.encode(all_texts).astype("float32")
     faiss_index = faiss.IndexFlatL2(384)
     faiss_index.add(doc_embeddings)
 
+<<<<<<< HEAD
     # Task 3: Persist FAISS to disk
     faiss.write_index(faiss_index, INDEX_FILE)
     print(f"Index persisted to {INDEX_FILE}")
 
+=======
+    # Persis FAISS index to disk
+    faiss.write_index(faiss_index, INDEX_FILE)
+    print(f"index persisted to {INDEX_FILE}")
+>>>>>>> master
 
 # Route to upload text or file
 @app.post("/upload")
@@ -107,15 +164,27 @@ async def upload(text: Optional[str] = Body(None), file: Optional[UploadFile] = 
 
     # Chunking documents
     chunks = chunk_text(text)
+<<<<<<< HEAD
     # documents.extend(chunks)
     # 1. Save to Database (The Source of Truth)
     db = SessionLocal()
     try:
         for chunk in chunks:
+=======
+
+    # documents.extend(chunks)
+    db=SessionLocal()
+    try:
+        for  chunk in chunks:
+>>>>>>> master
             db.add(DocumentChunk(content=chunk))
         db.commit()
     finally:
         db.close()
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
     # Rebuild indexes
     rebuild_indexes()
 
@@ -211,12 +280,20 @@ Answer:"""
     response = ollama.chat(model="phi3:latest", messages=[{'role': 'user', 'content': prompt}])
     llm_ms = get_latency(llm_start)
     total_ms = get_latency(total_start)
+<<<<<<< HEAD
     # Task 4: Log detailed metrics
     return {
         "query":query,
         "answer": response['message']['content'],
         "context": top_docs,
         "metrics": {
+=======
+    return {
+        "query":query,
+        "answer": response['message']['content'],
+        # "context": top_docs,
+        "metrices" : {
+>>>>>>> master
             "retrieval_ms": retrieval_ms,
             "rerank_ms": rerank_ms,
             "llm_ms": llm_ms,

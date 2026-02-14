@@ -5,4 +5,8 @@ numpy==2.2.6
 faiss-cpu==1.13.2
 ollama==0.6.1
 uvicorn==0.40.0
+<<<<<<< HEAD
 psycopg2-binary==2.9.11
+=======
+sqlalchemy==2.0.46
+>>>>>>> master
