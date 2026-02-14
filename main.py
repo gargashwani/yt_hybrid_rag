@@ -131,9 +131,11 @@ async def delete_docs():
 
 @app.get("/list/documents")
 async def get_documents():
+    db = SessionLocal()
+    document_chunks = db.query(DocumentChunk).all()
     return {
-        "total length": len(documents),
-        "documents": documents
+        "total length": len(document_chunks),
+        "document_chunks": document_chunks
     }
 
 
@@ -210,10 +212,6 @@ Answer:"""
     llm_ms = get_latency(llm_start)
     total_ms = get_latency(total_start)
     # Task 4: Log detailed metrics
-    logging.info(
-        f"Query: {query} | Total: {total_ms}ms | "
-        f"Retrieval: {retrieval_ms}ms | Rerank: {rerank_ms}ms | LLM: {llm_ms}ms"
-    )
     return {
         "query":query,
         "answer": response['message']['content'],
