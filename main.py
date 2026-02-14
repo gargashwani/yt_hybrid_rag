@@ -6,8 +6,14 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 import numpy as np
 import ollama
-app = FastAPI()
+import os
+from database import SessionLocal, DocumentChunk, engine, Base
+from contextlib import asynccontextmanager
+INDEX_FILE = "vector_index.faiss"
 
+import time
+def get_latency(start_time):
+    return round((time.time() - start_time) * 1000, 2) # Returns milliseconds
 
 
 # Global Variables
@@ -19,6 +25,31 @@ embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- STARTUP LOGIC ---
+    # 1 - Tell Python we are modifying the global variables
+    global faiss_index, bm25_index, documents 
+    
+    # 2 - Create DB tables
+    Base.metadata.create_all(bind=engine)
+
+    # 3 - Load faiss index from disk if it exists
+    if os.path.exists(INDEX_FILE):
+        faiss_index = faiss.read_index(INDEX_FILE)
+        print(f"✅ FAISS index loaded from disk ({faiss_index.ntotal} vectors).")
+        
+        # Note: If you want BM25 and documents to also persist, 
+        # you should trigger a one-time rebuild here from the DB.
+        rebuild_indexes()
+    else:
+        print("⚠️ No local index found. Initializing empty state.")
+    yield  # Application logic happens here
+    
+    # --- SHUTDOWN LOGIC ---
+    print("Shutting down... Cleaning up resources.")
+    
+app = FastAPI(lifespan=lifespan)
 
 def chunk_text(text, size=500, overlap = 100):
     chunks = []
@@ -32,29 +63,33 @@ def chunk_text(text, size=500, overlap = 100):
         start = start+size-overlap
     return chunks
 
-
+# Now, modify index rebuilding to fetch from the database and handle FAISS file persistence.
 # Rebuild indexes, whenever any doc or text gets uploaded.
 def rebuild_indexes():
-    global bm25_index, faiss_index
+    global bm25_index, faiss_index, documents
 
-    if not documents:
-        bm25_index = None
-        return
+    db = SessionLocal()
+    db_chunks = db.query(DocumentChunk).all()
+    db.close()
+
+    if not db_chunks:
+        return 
+
+    all_texts = [chunk.content for chunk in db_chunks]
+    documents = all_texts
     
-    ##################################
     # BM25 Index
-    ##################################
-    # Tokenization
-    tokenize_docs = [doc.lower().split() for doc in documents]
+    tokenize_docs = [doc.lower().split() for doc in all_texts] # Tokenization
     bm25_index = BM25Okapi(tokenize_docs)
 
-
-    ##################################
     # FAISS Index 
-    ################################## 
-    doc_embeddings = embed_model.encode(documents).astype("float32")
+    doc_embeddings = embed_model.encode(all_texts).astype("float32")
     faiss_index = faiss.IndexFlatL2(384)
     faiss_index.add(doc_embeddings)
+
+    # Task 3: Persist FAISS to disk
+    faiss.write_index(faiss_index, INDEX_FILE)
+    print(f"Index persisted to {INDEX_FILE}")
 
 
 # Route to upload text or file
@@ -72,7 +107,15 @@ async def upload(text: Optional[str] = Body(None), file: Optional[UploadFile] = 
 
     # Chunking documents
     chunks = chunk_text(text)
-    documents.extend(chunks)
+    # documents.extend(chunks)
+    # 1. Save to Database (The Source of Truth)
+    db = SessionLocal()
+    try:
+        for chunk in chunks:
+            db.add(DocumentChunk(content=chunk))
+        db.commit()
+    finally:
+        db.close()
     # Rebuild indexes
     rebuild_indexes()
 
@@ -133,6 +176,7 @@ def rerank(query:str, docs: List[str], top_k=2):
 # RAG Search API
 @app.post("/rag/search")
 async def rag_search(query: str = Body(...)):
+    total_start = time.time()
     if not query.strip():
         raise HTTPException(400, "query is required")
 
@@ -140,13 +184,17 @@ async def rag_search(query: str = Body(...)):
         raise HTTPException(400, "Upload document first")
 
     # Step 1
+    retrieval_start = time.time()
     hybrid_candidates = hybrid_search(query)
+    retrieval_ms = get_latency(retrieval_start)
 
     # Step 2 Reranking using CrossEncoder
+    rerank_start = time.time()
     top_docs = rerank(query, hybrid_candidates, 2)
-
+    rerank_ms = get_latency(rerank_start)
 
     # Step 3 - Prompt building with context for the LLM
+    llm_start = time.time()
     context = "\n".join(f"{i+1}.{doc}" for i, doc in enumerate(top_docs))
     prompt = f"""Answer based on the context below
 
@@ -159,12 +207,28 @@ Answer:"""
 
     # Step 4 - send prompt to local llm or open ai
     response = ollama.chat(model="phi3:latest", messages=[{'role': 'user', 'content': prompt}])
-
+    llm_ms = get_latency(llm_start)
+    total_ms = get_latency(total_start)
+    # Task 4: Log detailed metrics
+    logging.info(
+        f"Query: {query} | Total: {total_ms}ms | "
+        f"Retrieval: {retrieval_ms}ms | Rerank: {rerank_ms}ms | LLM: {llm_ms}ms"
+    )
     return {
         "query":query,
         "answer": response['message']['content'],
-        "context": top_docs
+        "context": top_docs,
+        "metrics": {
+            "retrieval_ms": retrieval_ms,
+            "rerank_ms": rerank_ms,
+            "llm_ms": llm_ms,
+            "total_ms": total_ms
+        }
     }
+
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port="8000")
