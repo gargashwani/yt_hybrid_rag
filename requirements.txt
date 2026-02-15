@@ -6,3 +6,4 @@ faiss-cpu==1.13.2
 ollama==0.6.1
 uvicorn==0.40.0
 sqlalchemy==2.0.46
+
