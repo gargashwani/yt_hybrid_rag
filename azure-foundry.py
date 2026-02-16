@@ -1,24 +1,17 @@
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
+import os
 from dotenv import load_dotenv
-load_dotenv()
-import uuid
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import PromptAgentDefinition
 from database import Base, Thread, SessionLocal, engine, Agent
+
+
+load_dotenv()
+
 project_client = AIProjectClient(
-    endpoint="https://codesips-2236-resource.services.ai.azure.com/api/projects/codesips-2236",
+    endpoint=os.environ["PROJECT_ENDPOINT"],
     credential=DefaultAzureCredential(),
 )
-
-# models = project_client.get_openai_client(api_version="2024-10-21")
-# response = models.chat.completions.create(
-#     model="gpt-4o-mini",
-#     messages=[
-#         {"role": "system", "content": "You are a helpful writing assistant"},
-#         {"role": "user", "content": "Write me a poem about flowers"},
-#     ],
-# )
-
-# print(response.choices[0].message.content)
 
 Base.metadata.create_all(bind=engine)  
 
@@ -29,15 +22,24 @@ def get_create_agent():
     if len(db_agents) > 0:
         return db_agents[0].agent_id
     
-    agents = list(project_client.agents.list_agents())
+    agents = list(project_client.agents.list())
     
     if len(agents) == 0:
         # Create persistent agent
-        agent = project_client.agents.create_agent(
-            model="gpt-4o-mini",
-            name="CodeSips-Assistant",
-            instructions="You are a senior backend developer helping with Python and Azure architecture.",
+        # agent = project_client.agents.create_agent(
+        #     model="gpt-4o-mini",
+        #     name=os.environ["AGENT_NAME"],
+        #     instructions="You are a senior backend developer helping with Python and Azure architecture.",
+        # )
+
+        agent = project_client.agents.create_version(
+            agent_name=os.environ["AGENT_NAME"],
+            definition=PromptAgentDefinition(
+                model=os.environ["MODEL_DEPLOYMENT_NAME"],
+                instructions="You are a helpful assistant that answers general questions",
+            ),
         )
+
         db.add(Agent(
             agent_id = agent.id,
             agent_name = agent.name,
