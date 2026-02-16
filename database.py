@@ -16,4 +16,18 @@ class DocumentChunk(Base):
     metadata_info = Column(JSON)
 
 
+class Thread(Base):
+    __tablename__ = "threads"
+    id= Column(Integer, primary_key=True, index=True)
+    thread_id= Column(Text, unique=True, index=True)
+    user_id=Column(Integer, nullable=True)
+
+
+class Agent(Base):
+    __tablename__ = "agents"
+    id=Column(Integer, primary_key=True, index=True)
+    agent_id=Column(Text, unique=True, index=True)
+    agent_name=Column(Text, nullable=True)
+    agent_model=Column(Text, nullable=True)
+
 Base.metadata.create_all(bind=engine)    
