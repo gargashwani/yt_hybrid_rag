@@ -7,11 +7,9 @@ ollama==0.6.1
 uvicorn==0.40.0
 sqlalchemy==2.0.46
 
-openai
 python-dotenv
-psycopg2-binary
 
 # Core Azure AI Foundry (New 2026 SDKs)
-azure-ai-projects>=2.0.0b3
-azure-identity>=1.19.0
-openai>=2.8.0
+# azure-ai-projects>=2.0.0b3
+# azure-identity>=1.19.0
+# openai>=2.8.0
