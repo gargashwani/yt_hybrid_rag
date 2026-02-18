@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from sqlalchemy.orm import Session
 
 # Import from your new database file
