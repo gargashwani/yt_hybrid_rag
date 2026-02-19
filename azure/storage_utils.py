@@ -1,5 +1,5 @@
 from azure.storage.blob import BlobServiceClient
-import os, uuid
+import os, uuid, sys
 import fitz  # PyMuPDF
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 

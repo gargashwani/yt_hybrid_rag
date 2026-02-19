@@ -1,6 +1,6 @@
 import os
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Response, Body
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
@@ -82,55 +82,48 @@ def get_or_create_active_agent():
         db.commit()
     return agent_record
 
-@app.post("/chat/{user_email}")
-async def chat(user_email: str, message: str):
+@app.post("/chat/")
+async def chat(user_email: str = Body(...), message: str = Body(...)):
     db = SessionLocal()
-    try:
-        # 1. RETRIEVAL: Fetch relevant text from Azure Search
-        context = storage_utils.search_docs(message, _embedding_client)
-        
-        # 2. SESSION: Fetch or create the Foundry Conversation
-        user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
-        if not user_session:
-            new_conv = openai_client.conversations.create()
-            user_session = UserChatSession(user_email=user_email, foundry_conversation_id=new_conv.id)
-            db.add(user_session)
-            db.commit()
-            db.refresh(user_session)
+    # 1. RETRIEVAL: Fetch relevant text from Azure Search
+    context = storage_utils.search_docs(message, _embedding_client)
+    
+    # 2. SESSION: Fetch or create the Foundry Conversation
+    user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
+    if not user_session:
+        new_conv = openai_client.conversations.create()
+        user_session = UserChatSession(user_email=user_email, foundry_conversation_id=new_conv.id)
+        db.add(user_session)
+        db.commit()
+        db.refresh(user_session)
 
-        # 3. THE FIX: Pass context via instructions override
-        # This prevents the context from being saved in the message history.
-        agent_name = getattr(app.state, "agent_name", os.environ["AGENT_NAME"])
-        
-        dynamic_override = f"""
-        Use the following document context to answer the user's question. 
-        If the answer is not in the context, say you don't know.
-        
-        ---
-        CONTEXT:
-        {context}
-        ---
-        """
+    # 3. THE FIX: Pass context via instructions override
+    # This prevents the context from being saved in the message history.
+    agent_name = getattr(app.state, "agent_name", os.environ["AGENT_NAME"])
 
-        response = openai_client.responses.create(
-            conversation=user_session.foundry_conversation_id,
-            extra_body={
-                "agent": {
-                    "name": agent_name, 
-                    "type": "agent_reference",
-                    "instructions": dynamic_override # <--- Context lives here now!
-                }
-            },
-            input=message, # <--- Only the clean question goes into history
-        )
-        
-        return {"agent_response": response.output_text}
+    dynamic_override = f"""CRITICAL CONTEXT:
+    ---
+    {context}
+    ---
+    USER QUESTION: {message}
 
-    except Exception as e:
-        print(f"❌ Chat Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
+    INSTRUCTION: Answer the question using ONLY the context above."""
+
+    response = openai_client.responses.create(
+        conversation=user_session.foundry_conversation_id,
+        extra_body={
+            "agent": {
+                "name": agent_name, 
+                "type": "agent_reference",
+                "instructions": dynamic_override # <--- Context lives here now!
+            }
+        },
+        input=message, # <--- Only the clean question goes into history
+    )
+    
+    db.close()
+    return {"agent_response": response.output_text}
+
 
 if __name__ == "__main__":
     import uvicorn
