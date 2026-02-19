@@ -12,6 +12,7 @@ load_dotenv()
 from openai import OpenAI
 
 import storage_utils
+import ai_search
 
 def main():
     # Use API key + v1 base URL for embeddings (same as main.py)
@@ -37,7 +38,7 @@ def main():
         print(f"Using first blob: {blob_name!r}")
 
     try:
-        count = storage_utils.ingest_blob_to_search(blob_name, embedding_client)
+        count = ai_search.ingest_blob_to_search(blob_name, embedding_client)
         print(f"OK: indexed {count} chunks")
         return 0
     except Exception as e:

@@ -10,9 +10,10 @@ from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from azure.storage.blob import BlobServiceClient
 
-# Local utilities and database
+# Local modules
 from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 import storage_utils
+import ai_search
 
 load_dotenv()
 
@@ -35,9 +36,14 @@ project_client = AIProjectClient(
 openai_client = project_client.get_openai_client()
 blob_service_client = BlobServiceClient.from_connection_string(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
 
+# Embeddings client (requires API key, Entra ID not supported for embeddings v1 API)
 _embedding_client = None
 if os.getenv("AZURE_OPENAI_API_KEY"):
-    _embedding_client = OpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"], base_url=os.getenv("AZURE_OPENAI_EMBEDDING_BASE_URL") )
+    from urllib.parse import urlparse
+    _embedding_base_url = os.getenv("AZURE_OPENAI_EMBEDDING_BASE_URL") or (
+        "https://" + urlparse(os.environ["PROJECT_ENDPOINT"]).netloc + "/openai/v1/"
+    )
+    _embedding_client = OpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"], base_url=_embedding_base_url)
 
 # --- ROUTES ---
 
@@ -56,7 +62,9 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/ingest/{blob_name}")
 async def process_to_search(blob_name: str):
     """Triggers the RAG pipeline for a stored blob."""
-    count = storage_utils.ingest_blob_to_search(blob_name, _embedding_client)
+    if _embedding_client is None:
+        raise HTTPException(status_code=503, detail="AZURE_OPENAI_API_KEY not set.")
+    count = ai_search.ingest_blob_to_search(blob_name, _embedding_client)
     return {"message": "Success", "chunks_indexed": count}
 
 @app.get("/list-docs")
@@ -86,7 +94,7 @@ def get_or_create_active_agent():
 async def chat(user_email: str = Body(...), message: str = Body(...)):
     db = SessionLocal()
     # 1. RETRIEVAL: Fetch relevant text from Azure Search
-    context = storage_utils.search_docs(message, _embedding_client)
+    context = ai_search.search_docs(message, _embedding_client)
     
     # 2. SESSION: Fetch or create the Foundry Conversation
     user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
@@ -97,8 +105,7 @@ async def chat(user_email: str = Body(...), message: str = Body(...)):
         db.commit()
         db.refresh(user_session)
 
-    # 3. THE FIX: Pass context via instructions override
-    # This prevents the context from being saved in the message history.
+    # 3. Pass context via instructions override
     agent_name = getattr(app.state, "agent_name", os.environ["AGENT_NAME"])
 
     dynamic_override = f"""CRITICAL CONTEXT:
@@ -115,10 +122,10 @@ async def chat(user_email: str = Body(...), message: str = Body(...)):
             "agent": {
                 "name": agent_name, 
                 "type": "agent_reference",
-                "instructions": dynamic_override # <--- Context lives here now!
+                "instructions": dynamic_override
             }
         },
-        input=message, # <--- Only the clean question goes into history
+        input=message,
     )
     
     db.close()
