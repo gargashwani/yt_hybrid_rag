@@ -10,6 +10,9 @@ from contextlib import asynccontextmanager
 
 load_dotenv()
 
+from routes import storage
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP LOGIC
@@ -23,6 +26,8 @@ async def lifespan(app: FastAPI):
 from routes import storage  # Import your new file
 
 app = FastAPI(title="Azure Foundry Agentic API", lifespan = lifespan)
+
+app.include_router(storage.router)
 
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
