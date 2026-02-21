@@ -97,6 +97,10 @@ async def chat_with_agent(user_email: str, message: str):
     )
     return {"Agent response": response.output_text}
 
+# create api to upload file in azure storage account(Blob service client)
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port="8000")
