@@ -39,7 +39,6 @@ project_client = AIProjectClient(
     credential=DefaultAzureCredential(),
 )
 openai_client = project_client.get_openai_client()
-blob_service_client = BlobServiceClient.from_connection_string(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
 
 # Embeddings client (requires API key, Entra ID not supported for embeddings v1 API)
 _embedding_client = None
