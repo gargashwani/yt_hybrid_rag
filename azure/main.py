@@ -1,5 +1,5 @@
 import os, uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
 from dotenv import load_dotenv
 from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 
@@ -23,8 +23,11 @@ async def lifespan(app: FastAPI):
     # SHUTDOWN LOGIC
     print("Shutting down, cleaning up resources")
 
+from routes import storage  # Import your new file
 
-app = FastAPI()
+app = FastAPI(title="Azure Foundry Agentic API", lifespan = lifespan)
+# Register the storage routes
+app.include_router(storage.router)
 
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
@@ -94,27 +97,6 @@ async def chat_with_agent(user_email: str, message: str):
     )
     return {"Agent response": response.output_text}
 
-# 1. First, define the Account URL (based on your Azure Template)
-ACCOUNT_URL = "https://codesipsdocs2026.blob.core.windows.net"
-
-
-# create api to upload file in azure storage account(Blob service client)
-@app.post("/upload/docs")
-async def upload_document(file: UploadFile = File(...) ):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only pdfs allowed")
-    
-    unique_filename = f"{uuid.uuid4()}-{file.filename}"
-
-    # Use DefaultAzureCredential (Week 1 Goal) to initialize the service client
-    service_client = BlobServiceClient(ACCOUNT_URL, credential=DefaultAzureCredential())
-    
-    # Get a client specifically for the blob you want to create
-    blob_client = service_client.get_blob_client(container="agent-docs", blob=unique_filename)
-
-    contents = await file.read()
-    blob_client.upload_blob(contents, overwrite=True)
-    return {"filenane": unique_filename, "status": "stored"}
 
 
 if __name__ == "__main__":
