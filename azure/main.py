@@ -1,5 +1,5 @@
-import os
-from fastapi import FastAPI
+import os, uuid
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from dotenv import load_dotenv
 from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 
@@ -8,24 +8,21 @@ from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from contextlib import asynccontextmanager
 
+# Blob Storage Account Imports
+from azure.storage.blob import BlobServiceClient
+
 load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP LOGIC
-
     Base.metadata.create_all(bind=engine)
-
-    db = SessionLocal()
-
-    agent_record = get_or_create_active_agent(db)
-
-
-
-    # SHUTDOWN LOGIC
-    # print("Shutting down, cleaning up resources")
+    get_or_create_active_agent()
 
     yield
+    # SHUTDOWN LOGIC
+    print("Shutting down, cleaning up resources")
+
 
 app = FastAPI()
 
@@ -97,8 +94,27 @@ async def chat_with_agent(user_email: str, message: str):
     )
     return {"Agent response": response.output_text}
 
-# create api to upload file in azure storage account(Blob service client)
+# 1. First, define the Account URL (based on your Azure Template)
+ACCOUNT_URL = "https://codesipsdocs2026.blob.core.windows.net"
 
+
+# create api to upload file in azure storage account(Blob service client)
+@app.post("/upload/docs")
+async def upload_document(file: UploadFile = File(...) ):
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only pdfs allowed")
+    
+    unique_filename = f"{uuid.uuid4()}-{file.filename}"
+
+    # Use DefaultAzureCredential (Week 1 Goal) to initialize the service client
+    service_client = BlobServiceClient(ACCOUNT_URL, credential=DefaultAzureCredential())
+    
+    # Get a client specifically for the blob you want to create
+    blob_client = service_client.get_blob_client(container="agent-docs", blob=unique_filename)
+
+    contents = await file.read()
+    blob_client.upload_blob(contents, overwrite=True)
+    return {"filenane": unique_filename, "status": "stored"}
 
 
 if __name__ == "__main__":
