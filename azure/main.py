@@ -1,5 +1,5 @@
-import os, uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Response, Body
+import os
+from fastapi import FastAPI, HTTPException, Body
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
@@ -11,7 +11,6 @@ from azure.storage.blob import BlobServiceClient
 
 # Local modules
 from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
-import storage_utils
 import ai_search
 
 # Blob Storage Account Imports
@@ -57,23 +56,6 @@ if os.getenv("AZURE_OPENAI_API_KEY"):
 ACCOUNT_URL = "https://codesipsdocs2026.blob.core.windows.net"
 
 
-# create api to upload file in azure storage account(Blob service client)
-@app.post("/upload/docs")
-async def upload_document(file: UploadFile = File(...) ):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only pdfs allowed")
-    
-    unique_filename = f"{uuid.uuid4()}-{file.filename}"
-
-    # Use DefaultAzureCredential (Week 1 Goal) to initialize the service client
-    service_client = BlobServiceClient(ACCOUNT_URL, credential=DefaultAzureCredential())
-    
-    # Get a client specifically for the blob you want to create
-    blob_client = service_client.get_blob_client(container="agent-docs", blob=unique_filename)
-
-    contents = await file.read()
-    blob_client.upload_blob(contents, overwrite=True)
-    return {"filenane": unique_filename, "status": "stored"}
 
 @app.post("/ingest/{blob_name}")
 async def process_to_search(blob_name: str):
@@ -82,10 +64,6 @@ async def process_to_search(blob_name: str):
         raise HTTPException(status_code=503, detail="AZURE_OPENAI_API_KEY not set.")
     count = ai_search.ingest_blob_to_search(blob_name, _embedding_client)
     return {"message": "Success", "chunks_indexed": count}
-
-@app.get("/list-docs")
-async def list_docs():
-    return storage_utils.list_agent_docs()
 
 # --- AGENT LOGIC ---
 
