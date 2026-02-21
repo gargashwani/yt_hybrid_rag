@@ -1,5 +1,4 @@
-import os
-import uuid
+import os, uuid
 from fastapi import FastAPI, UploadFile, File, HTTPException, Response, Body
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -15,20 +14,27 @@ from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 import storage_utils
 import ai_search
 
+# Blob Storage Account Imports
+from azure.storage.blob import BlobServiceClient
+
 load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # STARTUP LOGIC
     Base.metadata.create_all(bind=engine)
-    agent_record = get_or_create_active_agent()
-    app.state.agent_name = agent_record.agent_name
-    yield
+    get_or_create_active_agent()
 
-app = FastAPI(
-    title="Azure Foundry RAG API",
-    lifespan=lifespan
-)
-# Clients
+    yield
+    # SHUTDOWN LOGIC
+    print("Shutting down, cleaning up resources")
+
+from routes import storage  # Import your new file
+
+app = FastAPI(title="Azure Foundry Agentic API", lifespan = lifespan)
+# Register the storage routes
+app.include_router(storage.router)
+
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
     credential=DefaultAzureCredential(),
@@ -140,6 +146,8 @@ async def chat(user_email: str = Body(...), message: str = Body(...)):
     
     db.close()
     return {"agent_response": response.output_text}
+
+
 
 
 if __name__ == "__main__":
