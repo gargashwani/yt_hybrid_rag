@@ -1,5 +1,5 @@
 import os, uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
+from fastapi import FastAPI
 from dotenv import load_dotenv
 from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 
@@ -7,9 +7,6 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from contextlib import asynccontextmanager
-
-# Blob Storage Account Imports
-from azure.storage.blob import BlobServiceClient
 
 load_dotenv()
 
@@ -26,8 +23,6 @@ async def lifespan(app: FastAPI):
 from routes import storage  # Import your new file
 
 app = FastAPI(title="Azure Foundry Agentic API", lifespan = lifespan)
-# Register the storage routes
-app.include_router(storage.router)
 
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
@@ -36,9 +31,6 @@ project_client = AIProjectClient(
 
 agent_name = os.environ["AGENT_NAME"]
 openai_client = project_client.get_openai_client()
-
-
-
 
 def get_or_create_active_agent():
     db = SessionLocal()
