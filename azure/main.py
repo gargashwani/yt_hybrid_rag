@@ -47,17 +47,27 @@ if os.getenv("AZURE_OPENAI_API_KEY"):
 
 # --- ROUTES ---
 
-@app.post("/upload-doc")
-async def upload_document(file: UploadFile = File(...)):
+# 1. First, define the Account URL (based on your Azure Template)
+ACCOUNT_URL = "https://codesipsdocs2026.blob.core.windows.net"
+
+
+# create api to upload file in azure storage account(Blob service client)
+@app.post("/upload/docs")
+async def upload_document(file: UploadFile = File(...) ):
     if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDFs allowed.")
+        raise HTTPException(status_code=400, detail="Only pdfs allowed")
     
     unique_filename = f"{uuid.uuid4()}-{file.filename}"
-    blob_client = blob_service_client.get_blob_client(container="agent-docs", blob=unique_filename)
+
+    # Use DefaultAzureCredential (Week 1 Goal) to initialize the service client
+    service_client = BlobServiceClient(ACCOUNT_URL, credential=DefaultAzureCredential())
     
+    # Get a client specifically for the blob you want to create
+    blob_client = service_client.get_blob_client(container="agent-docs", blob=unique_filename)
+
     contents = await file.read()
     blob_client.upload_blob(contents, overwrite=True)
-    return {"filename": unique_filename, "status": "stored"}
+    return {"filenane": unique_filename, "status": "stored"}
 
 @app.post("/ingest/{blob_name}")
 async def process_to_search(blob_name: str):
