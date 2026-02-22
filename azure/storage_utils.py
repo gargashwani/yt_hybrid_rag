@@ -22,6 +22,7 @@ def list_agent_docs():
     ]
 
 
+
 def get_blob_content(blob_name: str, container_name: str = "agent-docs"):
     """Downloads raw bytes from Azure Blob Storage."""
     try:
@@ -31,7 +32,6 @@ def get_blob_content(blob_name: str, container_name: str = "agent-docs"):
     except Exception:
         return None
 
-
 def extract_text_from_blob(blob_name: str):
     """Converts PDF bytes to a plain text string."""
     pdf_bytes = get_blob_content(blob_name)
@@ -39,6 +39,7 @@ def extract_text_from_blob(blob_name: str):
         return None
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     return "".join([page.get_text() for page in doc])
+
 
 
 def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 100):
