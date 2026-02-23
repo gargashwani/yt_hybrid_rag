@@ -29,3 +29,12 @@ async def upload_document(file: UploadFile = File(...)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    
+
+# blob list 
+@router.get("/list")
+async def list_documents():
+    service_client = BlobServiceClient(ACCOUNT_URL, credential=DefaultAzureCredential())
+    container_client = service_client.get_container_client(container=CONTAINER_NAME)
+    blob_list = container_client.list_blobs()
+    return [{"name":b.name, "size":b.size} for b in blob_list] 
