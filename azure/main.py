@@ -67,34 +67,6 @@ def get_or_create_active_agent():
 
     return agent_record
 
-@app.post("/chat/{user_email}")
-async def chat_with_agent(user_email: str, message: str):
-    db = SessionLocal()
-
-    user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
-
-    conversation_id = user_session.foundry_conversation_id
-
-    if not user_session:
-        new_conversation =  openai_client.conversations.create()
-        user_session = UserChatSession(
-            user_email = user_email,
-            foundry_conversation_id = new_conversation.id
-        )
-        conversation_id = new_conversation.id
-        db.add(user_session)
-        db.commit()
-        db.refresh(user_session)
-
-    # Chat with the agent to answer questions
-    response = openai_client.responses.create(
-        conversation=conversation_id, #Optional conversation context for multi-turn
-        extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
-        input=message,
-    )
-    return {"Agent response": response.output_text}
-
-
 
 if __name__ == "__main__":
     import uvicorn
