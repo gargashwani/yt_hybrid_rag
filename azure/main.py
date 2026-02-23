@@ -1,12 +1,17 @@
-import os, uuid
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, HTTPException, Body
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
 
+from openai import OpenAI
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
-from contextlib import asynccontextmanager
+from azure.storage.blob import BlobServiceClient
+
+# Local modules
+from database import Base, engine, SessionLocal, FoundryAgent, UserChatSession
+import ai_search
 
 load_dotenv()
 
@@ -33,14 +38,36 @@ project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
     credential=DefaultAzureCredential(),
 )
-
-agent_name = os.environ["AGENT_NAME"]
 openai_client = project_client.get_openai_client()
+
+# Embeddings client (requires API key, Entra ID not supported for embeddings v1 API)
+_embedding_client = None
+if os.getenv("AZURE_OPENAI_API_KEY"):
+    from urllib.parse import urlparse
+    _embedding_base_url = os.getenv("AZURE_OPENAI_EMBEDDING_BASE_URL") or (
+        "https://" + urlparse(os.environ["PROJECT_ENDPOINT"]).netloc + "/openai/v1/"
+    )
+    _embedding_client = OpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"], base_url=_embedding_base_url)
+
+# --- ROUTES ---
+
+# 1. First, define the Account URL (based on your Azure Template)
+ACCOUNT_URL = "https://codesipsdocs2026.blob.core.windows.net"
+
+
+
+@app.post("/ingest/{blob_name}")
+async def process_to_search(blob_name: str):
+    """Triggers the RAG pipeline for a stored blob."""
+    if _embedding_client is None:
+        raise HTTPException(status_code=503, detail="AZURE_OPENAI_API_KEY not set.")
+    count = ai_search.ingest_blob_to_search(blob_name, _embedding_client)
+    return {"message": "Success", "chunks_indexed": count}
+
+# --- AGENT LOGIC ---
 
 def get_or_create_active_agent():
     db = SessionLocal()
-
-    # check database
     agent_record = db.query(FoundryAgent).first()
 
     if not agent_record:
@@ -48,54 +75,58 @@ def get_or_create_active_agent():
             agent_name=os.environ["AGENT_NAME"],
             definition=PromptAgentDefinition(
                 model=os.environ["MODEL_DEPLOYMENT_NAME"],
-                instructions="You are a helpful assistant that answers general questions",
+                instructions="You are an expert document assistant. Use the provided context to answer accurately."
             ),
         )
-
-        agent_record = FoundryAgent(
-            agent_id = agent.id, 
-            agent_name = agent.name,
-            agent_model = os.environ["MODEL_DEPLOYMENT_NAME"]
-        )
+        agent_record = FoundryAgent(agent_id=agent.id, agent_name=agent.name, agent_model=agent.definition.model)
         db.add(agent_record)
         db.commit()
-        db.refresh(agent_record)
-        print(f"Agent created successfully")
-
-    else:
-        print(f"Agent found in the db: {agent_record.agent_id}")
-
     return agent_record
 
-@app.post("/chat/{user_email}")
-async def chat_with_agent(user_email: str, message: str):
+@app.post("/chat/")
+async def chat(user_email: str = Body(...), message: str = Body(...)):
     db = SessionLocal()
-
+    # 1. RETRIEVAL: Fetch relevant text from Azure Search
+    context = ai_search.search_docs(message, _embedding_client)
+    
+    # 2. SESSION: Fetch or create the Foundry Conversation
     user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
-
-    conversation_id = user_session.foundry_conversation_id
-
     if not user_session:
-        new_conversation =  openai_client.conversations.create()
-        user_session = UserChatSession(
-            user_email = user_email,
-            foundry_conversation_id = new_conversation.id
-        )
-        conversation_id = new_conversation.id
+        new_conv = openai_client.conversations.create()
+        user_session = UserChatSession(user_email=user_email, foundry_conversation_id=new_conv.id)
         db.add(user_session)
         db.commit()
         db.refresh(user_session)
 
-    # Chat with the agent to answer questions
+    # 3. Pass context via instructions override
+    agent_name = getattr(app.state, "agent_name", os.environ["AGENT_NAME"])
+
+    dynamic_override = f"""CRITICAL CONTEXT:
+    ---
+    {context}
+    ---
+    USER QUESTION: {message}
+
+    INSTRUCTION: Answer the question using ONLY the context above."""
+
     response = openai_client.responses.create(
-        conversation=conversation_id, #Optional conversation context for multi-turn
-        extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+        conversation=user_session.foundry_conversation_id,
+        extra_body={
+            "agent": {
+                "name": agent_name, 
+                "type": "agent_reference",
+                "instructions": dynamic_override
+            }
+        },
         input=message,
     )
-    return {"Agent response": response.output_text}
+    
+    db.close()
+    return {"agent_response": response.output_text}
+
 
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port="8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
