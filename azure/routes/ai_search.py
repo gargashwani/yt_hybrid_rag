@@ -1,13 +1,24 @@
-import os, uuid
-from fastapi import APIRouter, HTTPException, Body
+
+import os
+import uuid
+import fitz  # PyMuPDF
+from fastapi import APIRouter, Request, Body
+
+
+
+# Azure SDKs
 from azure.storage.blob import BlobServiceClient
 from azure.identity import DefaultAzureCredential
-from openai import OpenAI
-import fitz  # PyMuPDF
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents.models import VectorizedQuery
+
+
+# AI & Processing
+from openai import OpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Database
 from database import SessionLocal, UserChatSession
 
 
@@ -16,8 +27,6 @@ router = APIRouter(
     tags=["ai_search"]
 )
 
-_embedding_base_url = os.getenv("AZURE_OPENAI_EMBEDDING_BASE_URL")
-_embedding_client = OpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"], base_url=_embedding_base_url)
 ACCOUNT_URL="https://codesipsdocs.blob.core.windows.net"
 CONTAINER_NAME = "agent-docs"
 
@@ -88,12 +97,11 @@ def ingest_blob_to_search(blob_name: str, embedding_client):
     search_client.upload_documents(documents=batch)
     return len(batch)
 
-@router.post("/ingest/{blob_name}")
-async def process_to_search(blob_name: str):
+@router.post("/ingest")
+async def process_to_search(request:Request, blob_name: str = Body(...)):
     """Triggers the RAG pipeline for a stored blob."""
-    if _embedding_client is None:
-        raise HTTPException(status_code=503, detail="AZURE_OPENAI_API_KEY not set.")
-    count = ingest_blob_to_search(blob_name, _embedding_client)
+    embedding_client = request.app.state.embedding_client
+    count = ingest_blob_to_search(blob_name, embedding_client)
     return {"message": "Success", "chunks_indexed": count}
 
 
@@ -134,20 +142,18 @@ def search_docs(query: str, embedding_client):
     context = "\n\n".join(context_parts) if context_parts else ""
     return context
 
-from azure.ai.projects import AIProjectClient
-project_client = AIProjectClient(
-    endpoint=os.environ["PROJECT_ENDPOINT"],
-    credential=DefaultAzureCredential(),
-)
-openai_client = project_client.get_openai_client()
 
 @router.post("/chat/")
-async def chat(user_email: str = Body(...), message: str = Body(...)):
+async def chat(request: Request, user_email: str = Body(...), message: str = Body(...)):
+    # 1. SETUP: Use shared clients from state
+    embedding_client = request.app.state.embedding_client
+    openai_client = request.app.state.openai_client
     db = SessionLocal()
-    # 1. RETRIEVAL: Fetch relevant text from Azure Search
-    context = search_docs(message, _embedding_client)
     
-    # 2. SESSION: Fetch or create the Foundry Conversation
+    # 2. RETRIEVAL: Fetch relevant text from Azure Search
+    context = search_docs(message, embedding_client)
+    
+    # 3. SESSION: Fetch or create the Foundry Conversation
     user_session = db.query(UserChatSession).filter(UserChatSession.user_email == user_email).first()
     if not user_session:
         new_conv = openai_client.conversations.create()
@@ -156,16 +162,24 @@ async def chat(user_email: str = Body(...), message: str = Body(...)):
         db.commit()
         db.refresh(user_session)
 
-    # 3. Pass context via instructions override
+    # 4. Pass context via instructions override
     agent_name = os.environ["AGENT_NAME"]
 
-    dynamic_override = f"""CRITICAL CONTEXT:
-    ---
-    {context}
-    ---
-    USER QUESTION: {message}
+    # Make the instruction even more aggressive
+    dynamic_override = f"""
+    # ROLE
+    You are a professional.
 
-    INSTRUCTION: Answer the question using ONLY the context above."""
+    # CONTEXT DATA
+    {context}
+
+    # TASK
+    Answer the user's question based ONLY on the CONTEXT DATA above.
+    If the information is missing, state clearly that it is not in the CV.
+
+    # USER QUESTION
+    {message}
+    """
 
     response = openai_client.responses.create(
         conversation=user_session.foundry_conversation_id,
@@ -173,7 +187,7 @@ async def chat(user_email: str = Body(...), message: str = Body(...)):
             "agent": {
                 "name": agent_name, 
                 "type": "agent_reference",
-                "instructions": dynamic_override
+                "instructions": dynamic_override # This is the key
             }
         },
         input=message,
