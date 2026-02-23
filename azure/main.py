@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     # Attach to state
     app.state.project_client = project_client
     app.state.openai_client = project_client.get_openai_client()
-    
+    app.state.account_url = "https://codesipsdocs.blob.core.windows.net"
     # Define and attach the embedding client
     _embedding_base_url = os.getenv("AZURE_OPENAI_EMBEDDING_BASE_URL")
     app.state.embedding_client = OpenAI(
@@ -50,8 +50,7 @@ app.include_router(storage.router)
 app.include_router(ai_search.router)
 
 
-# 1. First, define the Account URL (based on your Azure Template)
-ACCOUNT_URL = "https://codesipsdocs.blob.core.windows.net"
+
 
 
 
