@@ -104,3 +104,14 @@ for token in rag_chain.stream(
     "What is Retrieval-Augmented Generation?"
 ):
     print(token, end="", flush=True)
+
+
+# import asyncio
+
+# async def run_async():
+#     result = await rag_chain.ainvoke(
+#         "Why does RAG reduce hallucinations?"
+#     )
+#     print(result)
+
+# asyncio.run(run_async())    
