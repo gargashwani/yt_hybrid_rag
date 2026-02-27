@@ -7,20 +7,38 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from contextlib import asynccontextmanager
-
+from openai import OpenAI
 load_dotenv()
 
-from routes import storage
+from routes import storage, ai_search
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    credential = DefaultAzureCredential()
+
+    project_client = AIProjectClient(
+        endpoint=os.environ["PROJECT_ENDPOINT"],
+        credential=credential
+    )
+
+    app.state.project_client = project_client
+    app.state.openai_client = project_client.get_openai_client()
+    app.state.account_url = "https://codesipsdocs.blob.core.windows.net"
+
+    _embedding_base_url = os.getenv('AZURE_OPENAI_EMBEDDING_BASE_URL')
+    app.state.embedding_client = OpenAI(
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        base_url=_embedding_base_url
+    )
     # STARTUP LOGIC
     Base.metadata.create_all(bind=engine)
     get_or_create_active_agent()
 
     yield
     # SHUTDOWN LOGIC
+    project_client.close()
     print("Shutting down, cleaning up resources")
 
 from routes import storage  # Import your new file
@@ -28,6 +46,8 @@ from routes import storage  # Import your new file
 app = FastAPI(title="Azure Foundry Agentic API", lifespan = lifespan)
 
 app.include_router(storage.router)
+app.include_router(ai_search.router)
+
 
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
