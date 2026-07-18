@@ -96,32 +96,35 @@ def rebuild_indexes():
 # Route to upload text or file
 @app.post("/upload")
 async def upload(text: Optional[str] = Body(None), file: Optional[UploadFile] = File(None)):
-    if file:
-        content = await file.read()
-        text = content.decode('utf-8')
-
-    if not text or not text.strip():
-        raise HTTPException(400, "Text or text file is required")
-
-    if text:
-        text = unquote(text)
-
-    # Chunking documents
-    chunks = chunk_text(text)
-
-    # documents.extend(chunks)
-    db=SessionLocal()
     try:
-        for  chunk in chunks:
-            db.add(DocumentChunk(content=chunk))
-        db.commit()
-    finally:
-        db.close()
+        if file:
+            content = await file.read()
+            text = content.decode('utf-8')
 
-    # Rebuild indexes
-    rebuild_indexes()
+        if not text or not text.strip():
+            raise HTTPException(400, "Text or text file is required")
 
-    return {"added chunks": len(chunks), "total documents":len(documents)}
+        if text:
+            text = unquote(text)
+
+        # Chunking documents
+        chunks = chunk_text(text)
+
+        # documents.extend(chunks)
+        db=SessionLocal()
+        try:
+            for  chunk in chunks:
+                db.add(DocumentChunk(content=chunk))
+            db.commit()
+        finally:
+            db.close()
+
+        # Rebuild indexes
+        rebuild_indexes()
+
+        return {"added chunks": len(chunks), "total documents":len(documents)}
+    except Exception as e:
+        raise HTTPException(500, f"Error uploading document: {e}")
 
 @app.get("/delete")
 async def delete_docs():
@@ -172,7 +175,7 @@ def rerank(query:str, docs: List[str], top_k=2):
     # Get relavent scores
     scores = reranker.predict(pairs)
 
-    # Sory by score(highest first) and return top_k
+    # Sort by score(highest first) and return top_k
     return [doc for doc, _ in sorted(zip(docs, scores), key= lambda x:x[1], reverse=True)][:top_k]
 
 # RAG Search API

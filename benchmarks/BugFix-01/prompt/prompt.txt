@@ -1,0 +1,85 @@
+You are a senior Python engineer. Fix the bug described below.
+
+## Bug report
+
+In this FastAPI hybrid RAG app:
+1. User uploads documents via POST /upload (chunks saved to Postgres + FAISS + BM25).
+2. User calls GET /delete and gets a success response saying documents were cleared.
+3. User restarts the server.
+4. The "deleted" documents are back. Search still finds them.
+
+## Relevant code (main.py excerpts)
+
+```python
+from database import Base, SessionLocal, engine, DocumentChunk
+INDEX_FILE = "vector_index.faiss"
+
+documents: List[str] = []
+bm25_index: Optional[BM25Okapi] = None
+faiss_index: Optional[faiss.IndexFlatL2] = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global faiss_index, bm25_index, documents
+    Base.metadata.create_all(bind=engine)
+    if os.path.exists(INDEX_FILE):
+        faiss_index = faiss.read_index(INDEX_FILE)
+        rebuild_indexes()
+    yield
+
+def rebuild_indexes():
+    global bm25_index, faiss_index, documents
+    db = SessionLocal()
+    db_chunks = db.query(DocumentChunk).all()
+    db.close()
+    if not db_chunks:
+        return
+    all_texts = [chunk.content for chunk in db_chunks]
+    documents = all_texts
+    tokenize_docs = [doc.lower().split() for doc in all_texts]
+    bm25_index = BM25Okapi(tokenize_docs)
+    doc_embeddings = embed_model.encode(all_texts).astype("float32")
+    faiss_index = faiss.IndexFlatL2(384)
+    faiss_index.add(doc_embeddings)
+    faiss.write_index(faiss_index, INDEX_FILE)
+
+@app.post("/upload")
+async def upload(text: Optional[str] = Body(None), file: Optional[UploadFile] = File(None)):
+    # ... validates text/file ...
+    chunks = chunk_text(text)
+    db = SessionLocal()
+    try:
+        for chunk in chunks:
+            db.add(DocumentChunk(content=chunk))
+        db.commit()
+    finally:
+        db.close()
+    rebuild_indexes()
+    return {"added chunks": len(chunks), "total documents": len(documents)}
+
+@app.get("/delete")
+async def delete_docs():
+    doc_length = len(documents)
+    documents.clear()
+    return {
+        "total cleared docs": doc_length
+    }
+```
+
+## database.py
+
+```python
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    id = Column(Integer, primary_key=True, index=True)
+    content = Column(Text, nullable=False)
+    metadata_info = Column(JSON)
+```
+
+## Your task
+
+1. State the root cause in 2-4 sentences.
+2. Provide the fixed `delete_docs` function (and any small helpers if needed).
+3. Mention any related bugs or improvements you notice (optional, brief).
+
+Keep the answer concise and code-focused. Do not invent APIs that are not already in the project.

@@ -1,0 +1,30 @@
+[
+  {
+    "model": "qwen3.6:35b-a3b-coding-nvfp4",
+    "elapsed_s": 80.4,
+    "error": null,
+    "response_path": "responses/qwen3_6_35b-a3b-coding-nvfp4.md",
+    "char_count": 1656
+  },
+  {
+    "model": "qwen3-coder-fast:30b",
+    "elapsed_s": 12.26,
+    "error": null,
+    "response_path": "responses/qwen3-coder-fast_30b.md",
+    "char_count": 1219
+  },
+  {
+    "model": "north-mini-code-1.0:mlx-nvfp4",
+    "elapsed_s": 80.37,
+    "error": null,
+    "response_path": "responses/north-mini-code-1_0_mlx-nvfp4.md",
+    "char_count": 1744
+  },
+  {
+    "model": "glm-4.7-flash:latest",
+    "elapsed_s": 124.87,
+    "error": null,
+    "response_path": "responses/glm-4_7-flash_latest.md",
+    "char_count": 1353
+  }
+]
